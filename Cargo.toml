@@ -70,6 +70,7 @@ winit = { version = "0.29", default-features = false }
 image = { version = "0.24", default-features = false }
 log = "0.4.21"
 env_logger = "0.11.3"
+rdev = "0.5.3"
 
 [build-dependencies]
 embed-resource = "1"

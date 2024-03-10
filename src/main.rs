@@ -4,7 +4,9 @@
 use bevy::asset::AssetMetaCheck;
 use bevy::prelude::*;
 use bevy::sprite::Mesh2dHandle;
-use bevy::window::{CompositeAlphaMode, PrimaryWindow, WindowMode};
+use bevy::window::{
+    CompositeAlphaMode, PrimaryWindow, WindowMode, WindowResized, WindowResolution,
+};
 use bevy::winit::WinitWindows;
 use bevy::DefaultPlugins;
 use std::io::Cursor;
@@ -14,14 +16,14 @@ mod pet;
 mod state;
 
 use pet::Pet;
+use pet::PetPos;
 use state::State;
-
 fn main() {
     env_logger::init();
     App::new()
         .insert_resource(Msaa::Off)
         .insert_resource(AssetMetaCheck::Never)
-        .insert_resource(ClearColor(Color::rgba(0.5, 0.5, 0.5, 0.)))
+        .insert_resource(ClearColor(Color::rgba(0.5, 0.5, 0.5, 0.0)))
         .insert_resource(CursorWorldPos(None))
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
@@ -30,8 +32,9 @@ fn main() {
                 canvas: Some("#bevy".to_owned()),
                 // Tells wasm not to override default event handling, like F5 and Ctrl+R
                 prevent_default_event_handling: false,
-
                 transparent: true,
+                decorations: false,
+
                 #[cfg(target_os = "macos")]
                 composite_alpha_mode: CompositeAlphaMode::PostMultiplied,
 
@@ -42,6 +45,7 @@ fn main() {
         }))
         .add_plugins(pet::PetPlugin)
         .add_systems(Startup, setup)
+        .add_systems(Update, on_resize_system)
         .add_systems(Startup, set_window_icon)
         .add_systems(Update, get_world_pos)
         .add_systems(Update, update_cursor_hit_test)
@@ -65,22 +69,24 @@ fn get_world_pos(
         .and_then(|cursor_pos| main_camera.viewport_to_world_2d(main_camera_transform, cursor_pos));
 }
 
-fn setup(mut commands: Commands) {
+fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn(Camera2dBundle::default());
 
     commands
-        .spawn(NodeBundle {
-            background_color: BackgroundColor(Color::BLUE),
+        .spawn(ImageBundle {
+            // background_color: BackgroundColor(Color::hex("0085FF").unwrap()),
+            image: asset_server.load("body.png").into(),
             ..Default::default()
         })
-        .insert(Pet::new(true));
+        .insert(Pet::new(1));
 
     commands
-        .spawn(NodeBundle {
-            background_color: BackgroundColor(Color::BLUE),
+        .spawn(ImageBundle {
+            // background_color: BackgroundColor(Color::hex("0085FF").unwrap()),
+            image: asset_server.load("eye.png").into(),
             ..Default::default()
         })
-        .insert(Pet::new(false));
+        .insert(Pet::new(2));
 }
 
 // Sets the icon on windows and X11
@@ -105,9 +111,10 @@ fn set_window_icon(
 }
 
 fn update_cursor_hit_test(
+    click: Res<ButtonInput<MouseButton>>,
     cursor_world_pos: Res<CursorWorldPos>,
     mut q_primary_window: Query<&mut Window, With<PrimaryWindow>>,
-    q_pet: Query<(&Pet, &Transform), With<Pet>>,
+    mut q_pet: Query<(&mut Pet, &Transform), With<Pet>>,
 ) {
     let mut primary_window = q_primary_window.single_mut();
 
@@ -118,17 +125,43 @@ fn update_cursor_hit_test(
     }
 
     // If the cursor is within the radius of the Bevy logo make the window clickable otherwise the window is not clickable
-    let (pet, pet_transform) = q_pet.single();
-    // primary_window.cursor.hit_test = pet_transform
-    //     .translation
-    //     .truncate()
-    //     .distance_squared(cursor_world_pos)
-    //     < pet.size.y;
-    let cursor = (cursor_world_pos.0.unwrap()
-        + (Vec2::new(primary_window.width(), -primary_window.height())) / 2.)
-        * Vec2::new(1., -1.);
-    primary_window.cursor.hit_test = cursor.x >= pet.pos.x
-        && cursor.x <= pet.pos.x + pet.size.x
-        && cursor.y >= pet.pos.y
-        && cursor.y <= pet.pos.y + pet.size.y;
+
+    for (mut pet, pet_transform) in &mut q_pet {
+        // primary_window.cursor.hit_test = pet_transform
+        //     .translation
+        //     .truncate()
+        //     .distance_squared(cursor_world_pos)
+        //     < pet.size.y;
+        let cursor = (cursor_world_pos.0.unwrap()
+            + (Vec2::new(primary_window.width(), -primary_window.height())) / 2.)
+            * Vec2::new(1., -1.);
+
+        primary_window.cursor.hit_test = cursor.x >= unsafe { PetPos.x }
+            && cursor.x <= unsafe { PetPos.x } + pet.size.x
+            && cursor.y >= unsafe { PetPos.y }
+            && cursor.y <= unsafe { PetPos.y } + pet.size.y;
+
+        if click.pressed(MouseButton::Left) {
+            unsafe {
+                PetPos.x = cursor.x - pet.size.x / 2.;
+            }
+            unsafe {
+                PetPos.y = cursor.y - pet.size.y / 2.;
+            }
+        }
+    }
+}
+
+fn on_resize_system(mut windows: Query<&mut Window>) {
+    let mut window = windows.single_mut();
+    // println!("{:?}", rdev::display_size().unwrap());
+    log::info!("{} {}", window.width(), window.height());
+    window.resize_constraints = WindowResizeConstraints {
+        min_width: rdev::display_size().unwrap().0 as f32,
+        min_height: rdev::display_size().unwrap().1 as f32 - 25.,
+        ..Default::default()
+    };
+    window.position = WindowPosition::new(IVec2 { x: 0, y: 0 });
+    window.resizable = false;
+    // window.set_minimized(minimized)
 }
